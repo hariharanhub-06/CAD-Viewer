@@ -4,6 +4,8 @@ import { db } from "@/lib/db";
 import { verifyPassword } from "@/lib/password";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
+  // trust the deployment host (Vercel) so auth callbacks work in production
+  trustHost: true,
   session: { strategy: "jwt" },
   pages: { signIn: "/login" },
   providers: [
