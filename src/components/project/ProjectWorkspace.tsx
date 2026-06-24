@@ -44,8 +44,10 @@ export function ProjectWorkspace({ project, revisions, currentUserId }: Props) {
   const viewerBoxRef = useRef<HTMLDivElement>(null);
   const thumbDoneRef = useRef(false);
 
-  const writable = canComment(project.permission);
-  const editable = canEdit(project.permission);
+  // permission can change live (owner downgrades a share); refreshed via the annotations poll
+  const [permission, setPermission] = useState(project.permission);
+  const writable = canComment(permission);
+  const editable = canEdit(permission);
 
   // ---- Load the viewable model for the active revision ----
   useEffect(() => {
@@ -74,7 +76,11 @@ export function ProjectWorkspace({ project, revisions, currentUserId }: Props) {
   const refreshAnnotations = useCallback(async () => {
     if (!activeRev) return;
     const r = await fetch(`/api/revisions/${activeRev.id}/annotations`);
-    if (r.ok) setAnnotations((await r.json()).annotations);
+    if (r.ok) {
+      const d = await r.json();
+      setAnnotations(d.annotations);
+      if (d.permission) setPermission(d.permission);
+    }
   }, [activeRev]);
 
   const refreshActivity = useCallback(async () => {

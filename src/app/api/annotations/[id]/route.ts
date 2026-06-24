@@ -2,9 +2,15 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/session";
-import { getProjectAccess, canEdit, logActivity } from "@/lib/access";
+import { getProjectAccess, canEdit, canComment, logActivity } from "@/lib/access";
 
 const patchSchema = z.object({ severity: z.enum(["low", "medium", "high", "critical"]) });
+
+// May modify/remove an annotation: editors/owners always; the author only while they still
+// have at least comment access (so a downgraded-to-view author is locked out).
+function canModify(permission: string, authorId: string, userId: string): boolean {
+  return canEdit(permission as never) || (authorId === userId && canComment(permission as never));
+}
 
 // Update an annotation's severity (author or editor/owner).
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -20,7 +26,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const projectId = annotation.revision.projectId;
 
   const access = await getProjectAccess(user.id, user.email, projectId);
-  if (!access || (annotation.authorId !== user.id && !canEdit(access.permission))) {
+  if (!access || !canModify(access.permission, annotation.authorId, user.id)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
   const parsed = patchSchema.safeParse(await req.json().catch(() => null));
@@ -44,7 +50,7 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
 
   const projectId = annotation.revision.projectId;
   const access = await getProjectAccess(user.id, user.email, projectId);
-  if (!access || (annotation.authorId !== user.id && !canEdit(access.permission))) {
+  if (!access || !canModify(access.permission, annotation.authorId, user.id)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

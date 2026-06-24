@@ -39,7 +39,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       },
     },
   });
-  return NextResponse.json({ annotations });
+  // include the caller's current permission so the client can react to access changes live
+  return NextResponse.json({ annotations, permission: access.permission });
 }
 
 // Create an annotation (this is the "Send" action — only now does it become visible to others).
