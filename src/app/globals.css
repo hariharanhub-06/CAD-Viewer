@@ -1,0 +1,107 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background: #0b0d12;
+  color: #e5e7eb;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+/* Colorful, animated aurora background for marketing / auth pages */
+.aurora {
+  position: relative;
+  background:
+    radial-gradient(40rem 40rem at 10% 10%, rgba(139, 92, 246, 0.25), transparent 60%),
+    radial-gradient(36rem 36rem at 90% 20%, rgba(34, 211, 238, 0.2), transparent 60%),
+    radial-gradient(44rem 44rem at 50% 100%, rgba(217, 70, 239, 0.22), transparent 60%),
+    #0b0d12;
+}
+
+.gradient-text {
+  background: linear-gradient(90deg, #8b5cf6, #d946ef, #22d3ee);
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: gradientShift 8s ease infinite;
+}
+
+.glass {
+  background: rgba(20, 24, 33, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(14px);
+}
+
+.card-glow {
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+}
+.card-glow:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 12px 40px -12px rgba(99, 102, 241, 0.45);
+}
+
+@keyframes gradientShift {
+  0%,
+  100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+/* Comment pins rendered via CSS2DRenderer */
+.pin-marker {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 4px;
+  border-radius: 11px;
+  background: #3b82f6;
+  color: #fff;
+  border: 2px solid #fff;
+  font-size: 11px;
+  font-weight: 700;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+}
+.pin-marker.sev-low {
+  background: #64748b;
+}
+.pin-marker.sev-medium {
+  background: #3b82f6;
+}
+.pin-marker.sev-high {
+  background: #f59e0b;
+}
+.pin-marker.sev-critical {
+  background: #ef4444;
+}
+.pin-marker.resolved {
+  background: #22c55e;
+}
+.pin-marker.selected {
+  outline: 2px solid #ffcc00;
+  outline-offset: 1px;
+}
+
+/* Measurement distance labels rendered via CSS2DRenderer */
+.measure-label {
+  background: rgba(0, 0, 0, 0.75);
+  color: #ffcc00;
+  border: 1px solid #ffcc00;
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  transform: translate(-50%, -50%);
+}

@@ -1,0 +1,143 @@
+// Prisma schema for the CAD Review Platform.
+//
+// Local dev uses SQLite (zero-cost, no external service). For production on Vercel,
+// switch `provider` to "postgresql" and point DATABASE_URL at Neon. The schema avoids
+// native enums and uses String status fields so it is portable across both providers.
+// JSON payloads are stored as String (serialize with JSON.stringify in app code).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String?
+  passwordHash String?
+  // "owner" | "engineer" | "reviewer" (global default; per-project role lives on Share)
+  role         String   @default("engineer")
+  createdAt    DateTime @default(now())
+
+  projects   Project[]   @relation("ProjectOwner")
+  revisions  Revision[]
+  annotations Annotation[]
+  comments   Comment[]
+  shares     Share[]
+  activities Activity[]
+}
+
+model Project {
+  id        String   @id @default(cuid())
+  name      String
+  ownerId   String
+  owner     User     @relation("ProjectOwner", fields: [ownerId], references: [id])
+  // small data-URL preview captured the first time the model is viewed
+  thumbnail String?
+  createdAt DateTime @default(now())
+
+  revisions  Revision[]
+  shares     Share[]
+  activities Activity[]
+}
+
+model Revision {
+  id         String   @id @default(cuid())
+  projectId  String
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  version    Int
+  uploaderId String
+  uploader   User     @relation(fields: [uploaderId], references: [id])
+  // "active" | "superseded"
+  status     String   @default("active")
+  note       String?
+  createdAt  DateTime @default(now())
+
+  files       File[]
+  annotations Annotation[]
+
+  @@unique([projectId, version])
+}
+
+model File {
+  id           String   @id @default(cuid())
+  revisionId   String
+  revision     Revision @relation(fields: [revisionId], references: [id], onDelete: Cascade)
+  storageKey   String
+  originalName String
+  // file extension, lowercased, e.g. "step", "stl", "pdf", "easm"
+  format       String
+  // "viewable3d" | "pdf" | "attachment"
+  kind         String
+  sizeBytes    Int      @default(0)
+  createdAt    DateTime @default(now())
+}
+
+model Annotation {
+  id         String   @id @default(cuid())
+  revisionId String
+  revision   Revision @relation(fields: [revisionId], references: [id], onDelete: Cascade)
+  authorId   String
+  author     User     @relation(fields: [authorId], references: [id])
+  // "pin3d" | "text" | "freehand" | "shape" | "measurement" | "pdf-markup"
+  type       String
+  // severity / error level: "low" | "medium" | "high" | "critical"
+  severity   String   @default("medium")
+  // JSON string: geometry (3D anchor, stroke points, shape bounds, measurement endpoints)
+  geometry   String
+  // JSON string: saved camera viewpoint for 3D markup (null for PDF)
+  cameraState String?
+  // PDF page number (null for 3D)
+  page       Int?
+  createdAt  DateTime @default(now())
+
+  comments Comment[]
+}
+
+model Comment {
+  id           String   @id @default(cuid())
+  annotationId String
+  annotation   Annotation @relation(fields: [annotationId], references: [id], onDelete: Cascade)
+  authorId     String
+  author       User     @relation(fields: [authorId], references: [id])
+  body         String
+  // "open" | "resolved"
+  status       String   @default("open")
+  resolvedById String?
+  resolvedAt   DateTime?
+  createdAt    DateTime @default(now())
+}
+
+model Share {
+  id           String   @id @default(cuid())
+  projectId    String
+  project      Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  invitedEmail String
+  // set once the invited user has an account
+  userId       String?
+  user         User?    @relation(fields: [userId], references: [id])
+  // "view" | "comment" | "edit"
+  permission   String   @default("comment")
+  token        String   @unique
+  createdAt    DateTime @default(now())
+
+  @@unique([projectId, invitedEmail])
+}
+
+model Activity {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  actorId   String
+  actor     User     @relation(fields: [actorId], references: [id])
+  // "upload" | "comment" | "resolve" | "reopen" | "share" | "new-revision"
+  type      String
+  // JSON string with event-specific details
+  payload   String?
+  createdAt DateTime @default(now())
+}
