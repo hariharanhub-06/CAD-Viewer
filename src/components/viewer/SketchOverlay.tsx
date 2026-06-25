@@ -74,12 +74,18 @@ function renderShape(s: SketchShape, i: number, sx: number, sy: number) {
       return (
         <line key={i} x1={s.x1 * sx} y1={s.y1 * sy} x2={s.x2 * sx} y2={s.y2 * sy} stroke={s.color} strokeWidth={s.width} markerEnd="url(#sk-arrow)" />
       );
-    case "text":
+    case "text": {
+      const lines = s.text.split("\n");
       return (
         <text key={i} x={s.x * sx} y={s.y * sy} fill={s.color} fontSize={s.size} fontWeight={600}>
-          {s.text}
+          {lines.map((ln, j) => (
+            <tspan key={j} x={s.x * sx} dy={j === 0 ? 0 : s.size * 1.2}>
+              {ln || " "}
+            </tspan>
+          ))}
         </text>
       );
+    }
   }
 }
 
@@ -97,8 +103,11 @@ function bbox(s: SketchShape): { x: number; y: number; w: number; h: number } {
       return { x: s.x, y: s.y, w: s.w, h: s.h };
     case "arrow":
       return { x: Math.min(s.x1, s.x2), y: Math.min(s.y1, s.y2), w: Math.abs(s.x2 - s.x1), h: Math.abs(s.y2 - s.y1) };
-    case "text":
-      return { x: s.x, y: s.y - s.size, w: Math.max(20, s.text.length * s.size * 0.6), h: s.size + 4 };
+    case "text": {
+      const lines = s.text.split("\n");
+      const longest = lines.reduce((a, l) => Math.max(a, l.length), 0);
+      return { x: s.x, y: s.y - s.size, w: Math.max(20, longest * s.size * 0.6), h: lines.length * s.size * 1.2 + 4 };
+    }
   }
 }
 
@@ -177,6 +186,7 @@ export function SketchOverlay({
   const [selected, setSelected] = useState<number | null>(null);
   const [textEntry, setTextEntry] = useState<{ x: number; y: number } | null>(null);
   const [textValue, setTextValue] = useState("");
+  const [editingTextIndex, setEditingTextIndex] = useState<number | null>(null);
   const drawing = useRef(false);
   const drag = useRef<{ last: [number, number] } | null>(null);
   const resize = useRef<{ pivot: [number, number]; startCorner: [number, number]; orig: SketchShape } | null>(null);
@@ -276,15 +286,37 @@ export function SketchOverlay({
     if (tool !== "text" || textEntry) return;
     const [x, y] = pos(e);
     setTextValue("");
+    setEditingTextIndex(null);
     setTextEntry({ x, y });
   }
 
+  // Double-click an existing text mark (in any tool) to edit it.
+  function onDoubleClick(e: React.MouseEvent) {
+    const [x, y] = pos(e);
+    for (let i = shapes.length - 1; i >= 0; i--) {
+      const s = shapes[i];
+      if (s.kind === "text" && hit(s, x, y)) {
+        setEditingTextIndex(i);
+        setTextValue(s.text);
+        setTextEntry({ x: s.x, y: s.y - 14 });
+        return;
+      }
+    }
+  }
+
   function commitText() {
-    if (textEntry && textValue.trim()) {
-      setShapes((prev) => [...prev, { kind: "text", x: textEntry.x, y: textEntry.y + 14, text: textValue.trim(), color, size: 16 }]);
+    const text = textValue.replace(/\s+$/, ""); // keep internal newlines, drop trailing blanks
+    if (textEntry && text) {
+      if (editingTextIndex !== null) {
+        const idx = editingTextIndex;
+        setShapes((prev) => prev.map((s, i) => (i === idx && s.kind === "text" ? { ...s, text } : s)));
+      } else {
+        setShapes((prev) => [...prev, { kind: "text", x: textEntry.x, y: textEntry.y + 14, text, color, size: 16 }]);
+      }
     }
     setTextEntry(null);
     setTextValue("");
+    setEditingTextIndex(null);
   }
 
   const view = ref.current ? { w: ref.current.clientWidth, h: ref.current.clientHeight } : { w: 1000, h: 700 };
@@ -300,24 +332,30 @@ export function SketchOverlay({
         onPointerMove={onMove}
         onPointerUp={onUp}
         onClick={onClickText}
+        onDoubleClick={onDoubleClick}
       >
         <SketchView shapes={all} view={view} width={view.w} height={view.h} />
         {textEntry && (
-          <input
+          <textarea
             autoFocus
+            rows={Math.min(8, Math.max(1, textValue.split("\n").length))}
             value={textValue}
             onChange={(e) => setTextValue(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter") commitText();
-              else if (e.key === "Escape") {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                commitText();
+              } else if (e.key === "Escape") {
                 setTextEntry(null);
                 setTextValue("");
+                setEditingTextIndex(null);
               }
+              // Shift+Enter falls through → newline
             }}
             onBlur={commitText}
-            placeholder="Type text, Enter to place"
+            placeholder="Type text · Shift+Enter = new line · Enter = place"
             style={{ left: textEntry.x, top: textEntry.y, color, borderColor: color }}
-            className="absolute z-40 min-w-[180px] -translate-y-1/2 rounded border bg-black/80 px-2 py-1 text-sm font-semibold outline-none"
+            className="absolute z-40 min-w-[200px] resize -translate-y-1/2 rounded border bg-black/80 px-2 py-1 text-sm font-semibold leading-snug outline-none"
           />
         )}
 

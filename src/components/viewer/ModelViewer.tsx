@@ -11,6 +11,10 @@ import { ViewerToolbar, type Tool, type DisplayMode } from "./ViewerToolbar";
 import { SketchOverlay } from "./SketchOverlay";
 import { captureSketch3D, buildSketchObject, type Sketch3D } from "@/lib/cad/sketch3d";
 
+// Base navigation speeds; multiplied by the user's sensitivity (0.1–1.0).
+const BASE_SPEEDS = { rotate: 3.0, zoom: 1.4, pan: 1.4 };
+const DEFAULT_SENSITIVITY = 0.4;
+
 export interface ModelSource {
   buffer: ArrayBuffer;
   name: string;
@@ -114,6 +118,15 @@ export function ModelViewer({
   const [menu, setMenu] = useState<{ x: number; y: number; node: AssemblyNode | null; hit: boolean } | null>(null);
   const [displayMode, setDisplayMode] = useState<DisplayMode>("shaded-edges");
   const [selection, setSelection] = useState<{ uuid: string; name: string } | null>(null);
+  const [sensitivity, setSensitivity] = useState<number>(() => {
+    if (typeof window !== "undefined") {
+      const v = parseFloat(localStorage.getItem("cadviewer.sensitivity") || "");
+      if (!Number.isNaN(v) && v >= 0.1 && v <= 1) return v;
+    }
+    return DEFAULT_SENSITIVITY;
+  });
+  // component tree panel: open on desktop, collapsed on small screens (overlay drawer there)
+  const [treeOpen, setTreeOpen] = useState(() => (typeof window !== "undefined" ? window.innerWidth >= 768 : true));
   const [bounds, setBounds] = useState<{ min: number; max: number; center: number } | null>(null);
   const [section, setSection] = useState({ enabled: false, axis: "y" as "x" | "y" | "z", position: 0, flip: false });
 
@@ -157,9 +170,9 @@ export function ModelViewer({
     //   right-click         = context menu (handled separately)
     //   left-click          = select / measure / comment
     const controls = new TrackballControls(camera, renderer.domElement);
-    controls.rotateSpeed = 3.5;
-    controls.zoomSpeed = 1.3;
-    controls.panSpeed = 0.8;
+    controls.rotateSpeed = BASE_SPEEDS.rotate * DEFAULT_SENSITIVITY;
+    controls.zoomSpeed = BASE_SPEEDS.zoom * DEFAULT_SENSITIVITY;
+    controls.panSpeed = BASE_SPEEDS.pan * DEFAULT_SENSITIVITY;
     controls.staticMoving = false;
     controls.dynamicDampingFactor = 0.15;
     // LEFT/RIGHT set to an inert value (no drag action) so only the middle button navigates.
@@ -505,6 +518,17 @@ export function ModelViewer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [displayMode]);
 
+  // ---- Navigation sensitivity ----
+  useEffect(() => {
+    const c = controlsRef.current;
+    if (c) {
+      c.rotateSpeed = BASE_SPEEDS.rotate * sensitivity;
+      c.zoomSpeed = BASE_SPEEDS.zoom * sensitivity;
+      c.panSpeed = BASE_SPEEDS.pan * sensitivity;
+    }
+    if (typeof window !== "undefined") localStorage.setItem("cadviewer.sensitivity", String(sensitivity));
+  }, [sensitivity]);
+
   // ---- Section / clipping ----
   useEffect(() => {
     applySection();
@@ -704,13 +728,22 @@ export function ModelViewer({
 
   return (
     <div className="flex h-full w-full">
-      {/* Left: component tree */}
-      <div className="w-64 shrink-0 overflow-y-auto border-r border-edge bg-panel">
+      {/* Left: component tree (collapsible; overlay drawer on small screens) */}
+      <div
+        className={`${
+          treeOpen ? "absolute inset-y-0 left-0 z-30 flex w-64 md:relative md:z-auto" : "hidden"
+        } shrink-0 flex-col overflow-y-auto border-r border-edge bg-panel`}
+      >
         <div className="flex items-center justify-between px-3 py-2 text-xs uppercase tracking-wide text-gray-400">
           <span>Components</span>
-          <button onClick={showAll} className="rounded px-1 text-gray-300 hover:bg-edge" title="Show all">
-            show all
-          </button>
+          <div className="flex items-center gap-1">
+            <button onClick={showAll} className="rounded px-1 text-gray-300 hover:bg-edge" title="Show all">
+              show all
+            </button>
+            <button onClick={() => setTreeOpen(false)} className="rounded px-1 text-gray-300 hover:bg-edge" title="Hide panel">
+              ✕
+            </button>
+          </div>
         </div>
         {tree ? (
           <ComponentTree
@@ -726,7 +759,16 @@ export function ModelViewer({
       </div>
 
       {/* Center: canvas + toolbar */}
-      <div className="relative flex-1">
+      <div className="relative min-w-0 flex-1">
+        {!treeOpen && (
+          <button
+            onClick={() => setTreeOpen(true)}
+            className="absolute left-2 top-2 z-20 rounded bg-panel/90 px-2 py-1.5 text-sm text-gray-200 shadow hover:bg-edge"
+            title="Show components"
+          >
+            ☰
+          </button>
+        )}
         <ViewerToolbar
           tool={tool}
           onToolChange={setTool}
@@ -739,16 +781,18 @@ export function ModelViewer({
           enableAnnotation={enableAnnotation}
           displayMode={displayMode}
           onDisplayModeChange={setDisplayMode}
+          sensitivity={sensitivity}
+          onSensitivityChange={setSensitivity}
         />
         <div ref={mountRef} className="absolute inset-0" />
 
-        <div className="pointer-events-none absolute bottom-3 left-3 z-10 rounded bg-black/55 px-2 py-1 text-[11px] leading-relaxed text-gray-300">
+        <div className="pointer-events-none absolute bottom-3 left-3 z-10 hidden rounded bg-black/55 px-2 py-1 text-[11px] leading-relaxed text-gray-300 sm:block">
           <div>🖱 Middle-drag: rotate · Ctrl+Middle: pan · Wheel: zoom</div>
           <div>Click a part to select · Right-click: hide / isolate · empty: show all</div>
         </div>
 
         {selection && (
-          <div className="pointer-events-none absolute left-3 top-3 z-10 rounded bg-accent/90 px-3 py-1 text-xs font-medium text-white shadow">
+          <div className="pointer-events-none absolute left-2 top-12 z-10 rounded bg-accent/90 px-3 py-1 text-xs font-medium text-white shadow">
             Selected: {selection.name}
           </div>
         )}

@@ -31,6 +31,8 @@ export function ProjectWorkspace({ project, revisions, currentUserId }: Props) {
   const [activities, setActivities] = useState<ApiActivity[]>([]);
   const [shares, setShares] = useState<ApiShare[]>([]);
   const [tab, setTab] = useState<Tab>("comments");
+  // right sidebar: open on desktop, collapsed (overlay drawer) on small screens
+  const [panelOpen, setPanelOpen] = useState(() => (typeof window !== "undefined" ? window.innerWidth >= 768 : true));
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [pendingPin, setPendingPin] = useState<{
     position: [number, number, number];
@@ -291,9 +293,18 @@ export function ProjectWorkspace({ project, revisions, currentUserId }: Props) {
   const openCount = annotations.filter((a) => a.comments[0] && a.comments[0].status !== "resolved").length;
 
   return (
-    <div className="flex h-full">
+    <div className="relative flex h-full">
       {/* Viewer */}
       <div ref={viewerBoxRef} className="relative min-w-0 flex-1">
+        {!panelOpen && (
+          <button
+            onClick={() => setPanelOpen(true)}
+            className="absolute right-2 top-2 z-20 rounded bg-panel/90 px-2 py-1.5 text-sm text-gray-200 shadow hover:bg-edge"
+            title="Show comments panel"
+          >
+            💬{openCount ? ` ${openCount}` : ""}
+          </button>
+        )}
         {activeRev?.viewable ? (
           <>
             <ModelViewer
@@ -327,12 +338,21 @@ export function ProjectWorkspace({ project, revisions, currentUserId }: Props) {
         )}
       </div>
 
-      {/* Sidebar */}
-      <aside className="flex w-96 shrink-0 flex-col border-l border-edge bg-panel">
+      {/* Sidebar (collapsible; overlay drawer on small screens) */}
+      <aside
+        className={`${
+          panelOpen ? "absolute inset-y-0 right-0 z-30 flex w-full max-w-sm md:relative md:z-auto md:w-96" : "hidden"
+        } shrink-0 flex-col border-l border-edge bg-panel`}
+      >
         <div className="border-b border-edge px-4 py-3">
-          <Link href="/dashboard" className="mb-1 inline-block text-xs text-gray-400 hover:text-accent">
-            ← Projects
-          </Link>
+          <div className="mb-1 flex items-center justify-between">
+            <Link href="/dashboard" className="inline-block text-xs text-gray-400 hover:text-accent">
+              ← Projects
+            </Link>
+            <button onClick={() => setPanelOpen(false)} className="rounded px-1 text-xs text-gray-400 hover:bg-edge" title="Hide panel">
+              ✕
+            </button>
+          </div>
           <div className="flex items-center justify-between">
             <h1 className="truncate font-semibold" title={project.name}>
               {project.name}

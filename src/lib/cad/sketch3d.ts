@@ -122,19 +122,23 @@ function textPlane(
 ): THREE.Mesh {
   const pad = 8;
   const fontPx = 64;
+  const lineH = fontPx * 1.25;
+  const lines = text.split("\n");
   const cv = document.createElement("canvas");
   const m = cv.getContext("2d")!;
   m.font = `bold ${fontPx}px sans-serif`;
-  cv.width = Math.max(2, m.measureText(text).width + pad * 2);
-  cv.height = fontPx + pad * 2;
+  cv.width = Math.max(2, ...lines.map((l) => m.measureText(l).width)) + pad * 2;
+  cv.height = lines.length * lineH + pad * 2;
   const c2 = cv.getContext("2d")!;
   c2.font = `bold ${fontPx}px sans-serif`;
   c2.fillStyle = color;
   c2.textBaseline = "middle";
-  c2.fillText(text, pad, cv.height / 2);
+  lines.forEach((ln, i) => c2.fillText(ln, pad, pad + lineH * (i + 0.5)));
 
+  // worldHeight is one line's height; scale the plane by the number of lines
+  const totalH = worldHeight * lines.length;
   const aspect = cv.width / cv.height;
-  const geo = new THREE.PlaneGeometry(worldHeight * aspect, worldHeight);
+  const geo = new THREE.PlaneGeometry(totalH * aspect, totalH);
   const mat = new THREE.MeshBasicMaterial({
     map: new THREE.CanvasTexture(cv),
     transparent: true,
@@ -147,7 +151,7 @@ function textPlane(
   const n = new THREE.Vector3().crossVectors(r, u).normalize();
   mesh.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(r, u, n));
   // anchor the left edge near the click point
-  mesh.position.copy(at).addScaledVector(r, (worldHeight * aspect) / 2);
+  mesh.position.copy(at).addScaledVector(r, (totalH * aspect) / 2);
   mesh.renderOrder = 998;
   return mesh;
 }
