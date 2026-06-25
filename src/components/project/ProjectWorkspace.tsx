@@ -338,12 +338,18 @@ export function ProjectWorkspace({ project, revisions, currentUserId }: Props) {
         )}
       </div>
 
-      {/* Sidebar (collapsible; overlay drawer on small screens) */}
+      {/* Backdrop behind the mobile bottom-sheet */}
+      {panelOpen && <div className="fixed inset-0 z-30 bg-black/50 md:hidden" onClick={() => setPanelOpen(false)} />}
+
+      {/* Sidebar: right column on desktop, slide-up bottom sheet on phones */}
       <aside
         className={`${
-          panelOpen ? "absolute inset-y-0 right-0 z-30 flex w-full max-w-sm md:relative md:z-auto md:w-96" : "hidden"
-        } shrink-0 flex-col border-l border-edge bg-panel`}
+          panelOpen
+            ? "fixed inset-x-0 bottom-0 z-40 flex max-h-[80vh] rounded-t-2xl border-t md:static md:inset-auto md:z-auto md:max-h-none md:w-96 md:rounded-none md:border-l md:border-t-0"
+            : "hidden"
+        } shrink-0 flex-col border-edge bg-panel`}
       >
+        <div className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-edge md:hidden" />
         <div className="border-b border-edge px-4 py-3">
           <div className="mb-1 flex items-center justify-between">
             <Link href="/dashboard" className="inline-block text-xs text-gray-400 hover:text-accent">

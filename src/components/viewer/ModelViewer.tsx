@@ -830,12 +830,12 @@ export function ModelViewer({
           </div>
         )}
         {tool === "measure" && (
-          <div className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 rounded bg-black/60 px-3 py-1 text-xs text-gray-200">
+          <div className="pointer-events-none absolute bottom-20 left-1/2 -translate-x-1/2 rounded bg-black/60 px-3 py-1 text-xs text-gray-200 md:bottom-3">
             Click two points on the model to measure distance
           </div>
         )}
         {tool === "comment" && (
-          <div className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 rounded bg-black/60 px-3 py-1 text-xs text-gray-200">
+          <div className="pointer-events-none absolute bottom-20 left-1/2 -translate-x-1/2 rounded bg-black/60 px-3 py-1 text-xs text-gray-200 md:bottom-3">
             Click a point on the model to attach a comment
           </div>
         )}

@@ -49,14 +49,16 @@ export function ViewerToolbar({
   onSensitivityChange,
 }: Props) {
   const [showSens, setShowSens] = useState(false);
+  const lbl = "hidden md:inline";
   return (
-    <div className="absolute left-11 right-11 top-2 z-10 flex flex-col items-center gap-2 md:left-1/2 md:right-auto md:max-w-[95%] md:-translate-x-1/2">
-      <div className="flex w-full items-center gap-1 overflow-x-auto rounded-lg border border-edge bg-panel/90 p-1 shadow-lg backdrop-blur md:w-auto md:flex-wrap md:justify-center md:overflow-visible">
+    // Bottom icon bar on phones (thumb-reachable), centered top bar with labels on desktop.
+    <div className="absolute inset-x-2 bottom-2 z-10 flex flex-col-reverse items-center gap-2 md:inset-x-auto md:bottom-auto md:left-1/2 md:top-2 md:max-w-[95%] md:flex-col md:-translate-x-1/2">
+      <div className="flex w-full items-center gap-1 overflow-x-auto rounded-xl border border-edge bg-panel/95 p-1 shadow-lg backdrop-blur md:w-auto md:flex-wrap md:justify-center md:overflow-visible">
         <button className={btn(tool === "orbit")} onClick={() => onToolChange("orbit")} title="Rotate / Zoom / Pan">
-          🖱 Orbit
+          🖱<span className={lbl}> Orbit</span>
         </button>
         <button className={btn(tool === "measure")} onClick={() => onToolChange("measure")} title="Measure distance">
-          📏 Measure{measureCount ? ` (${measureCount})` : ""}
+          📏<span className={lbl}> Measure</span>{measureCount ? ` (${measureCount})` : ""}
         </button>
         <button
           className={btn(tool === "section" || section.enabled)}
@@ -66,49 +68,45 @@ export function ViewerToolbar({
           }}
           title="Section / clip plane"
         >
-          ✂ Section
+          ✂<span className={lbl}> Section</span>
         </button>
         {enableAnnotation && (
           <>
             <button className={btn(tool === "comment")} onClick={() => onToolChange("comment")} title="Place a comment pin">
-              📍 Comment
+              📍<span className={lbl}> Comment</span>
             </button>
             <button className={btn(tool === "sketch")} onClick={() => onToolChange("sketch")} title="Sketch / draw / text">
-              ✏ Sketch
+              ✏<span className={lbl}> Sketch</span>
             </button>
           </>
         )}
-        <div className="mx-1 h-6 w-px bg-edge" />
+        <div className="mx-1 hidden h-6 w-px bg-edge md:block" />
         <select
           value={displayMode}
           onChange={(e) => onDisplayModeChange(e.target.value as DisplayMode)}
           title="Display mode"
-          className="rounded bg-panel px-2 py-1.5 text-sm text-gray-200 outline-none hover:bg-edge"
+          className="shrink-0 rounded bg-panel px-2 py-1.5 text-sm text-gray-200 outline-none hover:bg-edge"
         >
           <option value="shaded-edges">◧ Shaded + edges</option>
           <option value="shaded">● Shaded</option>
           <option value="wireframe">◇ Wireframe</option>
         </select>
-        <div className="mx-1 h-6 w-px bg-edge" />
+        <div className="mx-1 hidden h-6 w-px bg-edge md:block" />
         <button className={btn(false)} onClick={onResetView} title="Fit model to view">
-          ⤢ Fit
+          ⤢<span className={lbl}> Fit</span>
         </button>
-        <button
-          className={btn(showSens)}
-          onClick={() => setShowSens((v) => !v)}
-          title="Adjust rotate / zoom / pan sensitivity"
-        >
-          🎚 Sensitivity
+        <button className={btn(showSens)} onClick={() => setShowSens((v) => !v)} title="Adjust rotate / zoom / pan sensitivity">
+          🎚<span className={lbl}> Sensitivity</span>
         </button>
         {measureCount > 0 && (
           <button className={btn(false)} onClick={onClearMeasurements} title="Clear measurements">
-            ✕ Clear
+            ✕<span className={lbl}> Clear</span>
           </button>
         )}
       </div>
 
       {showSens && (
-        <div className="flex items-center gap-3 rounded-lg border border-edge bg-panel/90 px-3 py-2 text-xs text-gray-300 shadow-lg backdrop-blur">
+        <div className="flex max-w-full flex-wrap items-center gap-2 rounded-lg border border-edge bg-panel/95 px-3 py-2 text-xs text-gray-300 shadow-lg backdrop-blur">
           <span className="uppercase tracking-wide text-gray-400">Sensitivity</span>
           <span>Slow</span>
           <input
@@ -118,7 +116,7 @@ export function ViewerToolbar({
             step={0.05}
             value={sensitivity}
             onChange={(e) => onSensitivityChange(parseFloat(e.target.value))}
-            className="w-48 accent-blue-500"
+            className="w-32 accent-blue-500 md:w-48"
           />
           <span>Fast</span>
           <span className="w-8 text-right text-gray-400">{Math.round(sensitivity * 100)}%</span>
@@ -126,7 +124,7 @@ export function ViewerToolbar({
       )}
 
       {section.enabled && bounds && (
-        <div className="flex items-center gap-3 rounded-lg border border-edge bg-panel/90 px-3 py-2 text-xs text-gray-300 shadow-lg backdrop-blur">
+        <div className="flex max-w-full flex-wrap items-center gap-2 rounded-lg border border-edge bg-panel/95 px-3 py-2 text-xs text-gray-300 shadow-lg backdrop-blur">
           <span className="uppercase tracking-wide text-gray-400">Plane</span>
           {(["x", "y", "z"] as const).map((ax) => (
             <button
@@ -146,7 +144,7 @@ export function ViewerToolbar({
             step={(bounds.max - bounds.min) / 200 || 1}
             value={section.position}
             onChange={(e) => onSectionChange({ ...section, position: parseFloat(e.target.value) })}
-            className="w-48 accent-blue-500"
+            className="w-32 accent-blue-500 md:w-48"
           />
           <button
             className="rounded bg-ink px-2 py-0.5 hover:bg-edge"
