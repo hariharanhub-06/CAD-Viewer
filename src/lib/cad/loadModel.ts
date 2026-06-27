@@ -8,20 +8,28 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import type { AssemblyNode, LoadedModel } from "./types";
 import { extOf } from "./types";
 
-let occtPromise: Promise<any> | null = null;
-
-// Lazily initialise the OpenCascade WASM module once per session.
-async function getOcct(): Promise<any> {
-  if (!occtPromise) {
-    occtPromise = (async () => {
-      const occtimportjs = (await import("occt-import-js")).default;
-      return await occtimportjs({
-        locateFile: (file: string) => `/wasm/${file}`,
-      });
-    })();
+// One reusable parser worker per session (keeps the WASM module warm across loads).
+let occtWorker: Worker | null = null;
+let occtMsgId = 0;
+function getOcctWorker(): Worker {
+  if (!occtWorker) {
+    occtWorker = new Worker(new URL("./occt.worker.ts", import.meta.url), { type: "module" });
   }
-  return occtPromise;
+  return occtWorker;
 }
+
+// Mesh data as it arrives back from the worker (typed arrays, transferred zero-copy).
+interface WorkerMesh {
+  name: string;
+  color: [number, number, number] | null;
+  position: Float32Array;
+  normal?: Float32Array;
+  index?: Uint32Array;
+  // per-face colours; `first`/`last` are inclusive triangle indices into the geometry
+  brepFaces?: { first: number; last: number; color: [number, number, number] | null }[] | null;
+}
+
+export type ParsePhase = "init" | "parsing";
 
 let nodeCounter = 0;
 function nextId(): string {
@@ -38,24 +46,51 @@ const defaultMaterial = () =>
     flatShading: false,
   });
 
-// Build a three.js Mesh from one occt mesh descriptor.
-function meshFromOcct(m: any): THREE.Mesh {
+// Build a three.js Mesh from one mesh descriptor returned by the worker.
+function meshFromWorker(m: WorkerMesh): THREE.Mesh {
   const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute(
-    "position",
-    new THREE.Float32BufferAttribute(m.attributes.position.array, 3)
-  );
-  if (m.attributes.normal) {
-    geometry.setAttribute(
-      "normal",
-      new THREE.Float32BufferAttribute(m.attributes.normal.array, 3)
-    );
+  geometry.setAttribute("position", new THREE.BufferAttribute(m.position, 3));
+  if (m.normal) {
+    geometry.setAttribute("normal", new THREE.BufferAttribute(m.normal, 3));
   } else {
     geometry.computeVertexNormals();
   }
   if (m.index) {
-    geometry.setIndex(m.index.array);
+    geometry.setIndex(new THREE.BufferAttribute(m.index, 1));
   }
+
+  // Prefer per-face colours when the file provides them (STEP/IGES frequently colour individual
+  // faces); fall back to the mesh colour, then the neutral default. This reproduces the source
+  // model's appearance instead of flattening everything to grey.
+  const faceColors = (m.brepFaces ?? []).filter((f) => f.color);
+  if (faceColors.length) {
+    const materials: THREE.Material[] = [];
+    const colorKey = (c: [number, number, number]) => `${c[0]},${c[1]},${c[2]}`;
+    const matIndexByColor = new Map<string, number>();
+    const matFor = (c: [number, number, number] | null): number => {
+      const key = c ? colorKey(c) : "__default";
+      let idx = matIndexByColor.get(key);
+      if (idx === undefined) {
+        const mat = defaultMaterial();
+        if (c) mat.color.setRGB(c[0], c[1], c[2]);
+        else if (m.color) mat.color.setRGB(m.color[0], m.color[1], m.color[2]);
+        idx = materials.push(mat) - 1;
+        matIndexByColor.set(key, idx);
+      }
+      return idx;
+    };
+    // Each brep face spans an inclusive triangle range; map it to a geometry group so its
+    // colour applies only to those triangles. `start`/`count` are in index units (3 per tri).
+    for (const f of m.brepFaces ?? []) {
+      const start = f.first * 3;
+      const count = (f.last - f.first + 1) * 3;
+      if (count > 0) geometry.addGroup(start, count, matFor(f.color));
+    }
+    const mesh = new THREE.Mesh(geometry, materials);
+    mesh.name = m.name || "part";
+    return mesh;
+  }
+
   const material = defaultMaterial();
   if (m.color) {
     material.color.setRGB(m.color[0], m.color[1], m.color[2]);
@@ -93,26 +128,43 @@ function buildTree(node: any, meshObjects: THREE.Mesh[], group: THREE.Group): As
 }
 
 async function loadWithOcct(
-  data: Uint8Array,
+  buffer: ArrayBuffer,
   ext: string,
-  fileName: string
+  fileName: string,
+  onProgress?: (phase: ParsePhase) => void
 ): Promise<LoadedModel> {
-  const occt = await getOcct();
-  let result: any;
-  if (ext === "step" || ext === "stp") {
-    result = occt.ReadStepFile(data, null);
-  } else if (ext === "iges" || ext === "igs") {
-    result = occt.ReadIgesFile(data, null);
-  } else if (ext === "brep") {
-    result = occt.ReadBrepFile(data, null);
-  } else {
-    throw new Error(`Unsupported occt format: ${ext}`);
-  }
-  if (!result || !result.success) {
-    throw new Error(`Failed to parse ${ext.toUpperCase()} file.`);
-  }
+  const worker = getOcctWorker();
+  const id = ++occtMsgId;
 
-  const meshObjects: THREE.Mesh[] = result.meshes.map((m: any) => meshFromOcct(m));
+  const result = await new Promise<{ root: any; meshes: WorkerMesh[] }>((resolve, reject) => {
+    const cleanup = () => {
+      worker.removeEventListener("message", onMessage);
+      worker.removeEventListener("error", onError);
+    };
+    const onMessage = (e: MessageEvent<any>) => {
+      const d = e.data;
+      if (!d || d.id !== id) return;
+      if (d.type === "progress") {
+        onProgress?.(d.phase);
+      } else if (d.type === "done") {
+        cleanup();
+        resolve({ root: d.root, meshes: d.meshes });
+      } else if (d.type === "error") {
+        cleanup();
+        reject(new Error(d.message));
+      }
+    };
+    const onError = (e: ErrorEvent) => {
+      cleanup();
+      reject(new Error(e.message || "The model parser crashed."));
+    };
+    worker.addEventListener("message", onMessage);
+    worker.addEventListener("error", onError);
+    // Clone (don't transfer) the input buffer so the caller's copy stays usable.
+    worker.postMessage({ id, ext, buffer });
+  });
+
+  const meshObjects: THREE.Mesh[] = result.meshes.map(meshFromWorker);
   const group = new THREE.Group();
   group.name = fileName;
 
@@ -146,12 +198,16 @@ function singleNodeModel(object: THREE.Object3D, fileName: string): LoadedModel 
 }
 
 // Entry point: parse an uploaded/fetched file (as ArrayBuffer) into a LoadedModel.
-export async function loadModel(buffer: ArrayBuffer, fileName: string): Promise<LoadedModel> {
+// `onProgress` reports which phase the (off-thread) occt parser is in, for live UI feedback.
+export async function loadModel(
+  buffer: ArrayBuffer,
+  fileName: string,
+  onProgress?: (phase: ParsePhase) => void
+): Promise<LoadedModel> {
   const ext = extOf(fileName);
-  const data = new Uint8Array(buffer);
 
   if (["step", "stp", "iges", "igs", "brep"].includes(ext)) {
-    return loadWithOcct(data, ext, fileName);
+    return loadWithOcct(buffer, ext, fileName, onProgress);
   }
 
   if (ext === "stl") {

@@ -113,6 +113,8 @@ export function ModelViewer({
   const [tree, setTree] = useState<AssemblyNode | null>(null);
   const [visVersion, setVisVersion] = useState(0); // force tree re-render after visibility changes
   const [loading, setLoading] = useState(false);
+  const [parseMsg, setParseMsg] = useState("Parsing model…");
+  const [parseSeconds, setParseSeconds] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [measureCount, setMeasureCount] = useState(0);
   const [menu, setMenu] = useState<{ x: number; y: number; node: AssemblyNode | null; hit: boolean } | null>(null);
@@ -347,6 +349,15 @@ export function ModelViewer({
     let cancelled = false;
     setLoading(true);
     setError(null);
+    setParseMsg("Preparing parser…");
+    setParseSeconds(0);
+
+    // Tick an elapsed timer so the user can see parsing is alive and making progress
+    // (the heavy occt work now runs in a worker, so the main thread stays responsive).
+    const startedAt = performance.now();
+    const timer = window.setInterval(() => {
+      if (!cancelled) setParseSeconds(Math.floor((performance.now() - startedAt) / 1000));
+    }, 250);
 
     // remove previous model
     if (modelRef.current && sceneRef.current) {
@@ -356,7 +367,10 @@ export function ModelViewer({
     }
     clearMeasurements();
 
-    loadModel(source.buffer, source.name)
+    loadModel(source.buffer, source.name, (phase) => {
+      if (cancelled) return;
+      setParseMsg(phase === "init" ? "Preparing parser…" : "Parsing model…");
+    })
       .then((model) => {
         if (cancelled) return;
         modelRef.current = model;
@@ -389,10 +403,14 @@ export function ModelViewer({
         console.error(e);
         setError(e?.message || "Failed to load model.");
         setLoading(false);
+      })
+      .finally(() => {
+        window.clearInterval(timer);
       });
 
     return () => {
       cancelled = true;
+      window.clearInterval(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [source]);
@@ -820,8 +838,14 @@ export function ModelViewer({
           />
         )}
         {loading && (
-          <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-sm text-gray-300">
-            Parsing model…
+          <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/30 text-gray-200">
+            <div className="h-9 w-9 animate-spin rounded-full border-2 border-gray-600 border-t-accent" />
+            <div className="text-sm font-medium">{parseMsg}</div>
+            <div className="font-mono text-xs text-gray-400">{formatElapsed(parseSeconds)} elapsed</div>
+            <div className="max-w-xs text-center text-[11px] leading-relaxed text-gray-500">
+              Large STEP assemblies can take a while to tessellate. The viewer stays responsive
+              while parsing runs in the background.
+            </div>
           </div>
         )}
         {error && (
@@ -904,6 +928,12 @@ export function ModelViewer({
       </div>
     </div>
   );
+}
+
+function formatElapsed(totalSeconds: number): string {
+  const m = Math.floor(totalSeconds / 60);
+  const s = totalSeconds % 60;
+  return `${m}:${String(s).padStart(2, "0")}`;
 }
 
 function formatDistance(d: number): string {

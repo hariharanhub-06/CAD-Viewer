@@ -41,34 +41,64 @@ export function captureSketch3D(
   const raycaster = new THREE.Raycaster();
   const camDir = new THREE.Vector3();
   camera.getWorldDirection(camDir);
+  const ndc = (px: number, py: number) => new THREE.Vector2((px / view.w) * 2 - 1, -((py / view.h) * 2 - 1));
 
-  // Anchor + fallback plane (used for points that miss the model).
+  // Pick ONE sketch plane from the face under the drawing's centroid, then project the WHOLE
+  // sketch onto that single plane. Previously each point was raycast onto whatever face sat
+  // under it, so a stroke spanning several faces (or empty space) jumped between depths and
+  // landed "somewhere". Anchoring to one face keeps the mark coherent and readable on the view.
   const pts = allPoints(shapes);
   const cx = pts.reduce((a, p) => a + p[0], 0) / (pts.length || 1);
   const cy = pts.reduce((a, p) => a + p[1], 0) / (pts.length || 1);
-  const ndc = (px: number, py: number) => new THREE.Vector2((px / view.w) * 2 - 1, -((py / view.h) * 2 - 1));
   raycaster.setFromCamera(ndc(cx, cy), camera);
   const anchorHit = raycaster.intersectObjects(visible, false);
-  const anchor = anchorHit.length
-    ? anchorHit[0].point.clone()
-    : raycaster.ray.at(camera.position.distanceTo(target), new THREE.Vector3());
-  const right = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0).normalize();
-  const up = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 1).normalize();
-  const wpp = (2 * Math.tan((camera.fov * Math.PI) / 360) * camera.position.distanceTo(anchor)) / view.h;
 
-  // Project a 2D screen point to a 3D world point: onto the surface if it hits, else the plane.
+  let anchor: THREE.Vector3;
+  let normal: THREE.Vector3;
+  if (anchorHit.length) {
+    const h = anchorHit[0];
+    anchor = h.point.clone();
+    if (h.face) {
+      // face normal in world space, oriented toward the camera
+      normal = h.face.normal.clone().transformDirection(h.object.matrixWorld).normalize();
+      if (normal.dot(camDir) > 0) normal.negate();
+    } else {
+      normal = camDir.clone().negate();
+    }
+  } else {
+    // drawing missed the model entirely → a plane facing the camera through the orbit target
+    anchor = raycaster.ray.at(camera.position.distanceTo(target), new THREE.Vector3());
+    normal = camDir.clone().negate();
+  }
+  const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(normal, anchor);
+
+  // In-plane basis: the camera's right/up flattened onto the sketch plane, so text lies on the
+  // face and rotates with the model.
+  const camRight = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0);
+  const camUp = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 1);
+  let right = camRight.clone().projectOnPlane(normal);
+  if (right.lengthSq() < 1e-8) right = camUp.clone().cross(normal); // grazing view fallback
+  right.normalize();
+  const up = new THREE.Vector3().crossVectors(normal, right).normalize();
+  if (up.dot(camUp) < 0) {
+    up.negate();
+    right.negate();
+  }
+
+  const dist = camera.position.distanceTo(anchor);
+  const wpp = (2 * Math.tan((camera.fov * Math.PI) / 360) * dist) / view.h;
+  const lift = dist * 0.003;
+
+  // Project a 2D screen point onto the single sketch plane (ray–plane intersection).
   const project = (px: number, py: number): V3 => {
     raycaster.setFromCamera(ndc(px, py), camera);
-    const hit = raycaster.intersectObjects(visible, false);
-    let p: THREE.Vector3;
-    if (hit.length) {
-      p = hit[0].point.clone();
-      // lift slightly toward the camera so the mark sits on top of the face (no z-fighting)
-      const lift = camera.position.distanceTo(p) * 0.003;
-      p.addScaledVector(camDir, -lift);
-    } else {
-      p = anchor.clone().addScaledVector(right, (px - cx) * wpp).addScaledVector(up, -(py - cy) * wpp);
+    const p = new THREE.Vector3();
+    if (!raycaster.ray.intersectPlane(plane, p)) {
+      // ray parallel to the plane (extreme grazing angle) → place relative to the anchor
+      p.copy(anchor).addScaledVector(right, (px - cx) * wpp).addScaledVector(up, -(py - cy) * wpp);
     }
+    // lift slightly toward the camera so the mark sits on top of the face (no z-fighting)
+    p.addScaledVector(normal, lift);
     return [p.x, p.y, p.z];
   };
 
